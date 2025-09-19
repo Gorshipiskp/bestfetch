@@ -21,7 +21,7 @@ npm install bestfetch-g
 
 ## Quick start
 
-```TypeScript
+```typescript
 import { BestFetch } from 'bestfetch-g';
 
 const api = new BestFetch({
@@ -120,7 +120,7 @@ await api.get({
 
 ## Error Handling
 
-```
+```typescript
 try {
   const data = await api.get({
     endpoint: 'protected',
