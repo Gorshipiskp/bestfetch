@@ -21,7 +21,7 @@ npm install bestfetch-g
 
 ## Quick start
 
-```typescript
+```TypeScript
 import { BestFetch } from 'bestfetch-g';
 
 const api = new BestFetch({
@@ -158,6 +158,7 @@ try {
 - `'JSON'` - Parse as JSON
 - `'TEXT'` - Get as text
 - `'BLOB'` - Get as Blob
+- `'BYTES'` - Get as Bytes (`UInt8Array`)
 - `'ARRAYBUFFER'` - Get as ArrayBuffer
 - `'FORMDATA'` - Get as FormData
 - `'RESPONSE'` - Get raw Response
