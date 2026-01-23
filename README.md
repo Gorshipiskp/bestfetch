@@ -1,6 +1,7 @@
-# BestFetch 🚀
+# BestFetch
 
-- IN DEVELOPMENT
+> IN DEVELOPMENT, NOT FINAL VERSION
+
 Advanced fetch wrapper with automatic retries, middleware support, and full TypeScript typing.
 
 ## Features
