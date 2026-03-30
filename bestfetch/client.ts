@@ -22,7 +22,6 @@ export class HTTPClient {
             retries: 3,
             baseDelay: 300
         };
-        console.log(retryOpts)
         this.retryExecutor = new RetryExecutor(
             defaultRetryStrategy(retryOpts),
             retryOpts.retries

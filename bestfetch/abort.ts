@@ -23,7 +23,7 @@ export function mergeAbortSignals(
         if (signal.aborted) {
             controller.abort();
         } else {
-            signal.addEventListener("abort", onAbort);
+            signal.addEventListener("abort", onAbort, { once: true });
         }
     });
 
