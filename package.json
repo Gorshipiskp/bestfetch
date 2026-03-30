@@ -1,0 +1,35 @@
+{
+  "name": "bestfetch-g",
+  "version": "2.0.0",
+  "description": "Advanced fetch wrapper with retry mechanism, middleware support, TypeScript strong types, and intelligent error handling",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Gorshipiskp/bestfetch.git"
+  },
+  "keywords": [
+    "fetch",
+    "http",
+    "https",
+    "api",
+    "json",
+    "typescript",
+    "requests",
+    "network",
+    "retry",
+    "middleware",
+    "plugin",
+    "callbacks"
+  ],
+  "author": "Gorshipisk",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.2"
+  }
+}
