@@ -161,5 +161,5 @@ const textData2 = await api.get("/posts/1", {
 
 const rawUsers = await api.get("/users");
 
-// rawUsers: unknown (JSON mean unknown)
+// rawUsers: any (JSON mean any)
 console.log("Raw users:", rawUsers);

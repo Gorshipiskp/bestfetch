@@ -9,7 +9,7 @@ type ConvertTypeMap = {
     BLOB: Blob;
     BYTES: Uint8Array;
     FORMDATA: FormData;
-    JSON: unknown;
+    JSON: any;
     RESPONSE: Response;
     TEXT: string;
 };
