@@ -1,4 +1,4 @@
-import {BestFetch} from "./bestfetch/bestfetch";
+import { BestFetch } from "bestfetch-g";
 
 // Default callbacks
 
@@ -7,7 +7,7 @@ function onErrorDefault(response: Response): boolean {
     return true;
 }
 
-function onNetworkErrorDefault(error: any): boolean {
+function onNetworkErrorDefault(error: unknown): boolean {
     console.error("Network error:", error);
     return true;
 }
@@ -39,22 +39,12 @@ api.use({
     }
 });
 
-// Example 1: GET users
-
-const usersCount = await api.get<number>("/users", {
-    callbacks: {
-        onSuccess: (users: any[]) => {
-            console.log("Users:", users);
-            return users.length;
-        },
-        onError: onErrorDefault,
-        onNetworkError: onNetworkErrorDefault
-    }
-});
-
-// The IDE knows that `usersCount` is number
-
 // Types
+
+type User = {
+    id: number;
+    name: string;
+};
 
 type Post = {
     title: string;
@@ -69,9 +59,25 @@ const toPost = {
     userId: 1
 };
 
+// Example 1: GET users
+
+const usersCount = await api.get("/users", {
+    callbacks: {
+        onSuccess: (users: User[]) => {
+            console.log("Users:", users);
+            return users.length;
+        },
+        onError: onErrorDefault,
+        onNetworkError: onNetworkErrorDefault
+    }
+});
+
+// usersCount: number
+
+
 // Example 2: POST create post
 
-const postID = await api.post<number>("/posts", toPost, {
+const postID = await api.post("/posts", toPost, {
     callbacks: {
         onSuccess: (post: Post) => {
             console.log("Created post:", post);
@@ -82,22 +88,26 @@ const postID = await api.post<number>("/posts", toPost, {
     }
 });
 
-// The IDE knows that `postID` is number
+// postID: number
+
 
 // Example 3: Query parameters
 
-const filteredUsers = await api.get<any[]>("/users", {
+const filteredUsers = await api.get("/users", {
     query: {
         limit: 5,
         search: "Leanne"
     },
     callbacks: {
-        onSuccess: (users) => {
+        onSuccess: (users: User[]) => {
             console.log("Filtered users:", users);
             return users;
         }
     }
 });
+
+// filteredUsers: User[]
+
 
 // Example 4: Custom headers
 
@@ -106,6 +116,7 @@ await api.get("/users", {
         Authorization: "Bearer some-token"
     }
 });
+
 
 // Example 5: Timeout + Abort
 
@@ -118,25 +129,37 @@ try {
         signal: controller.signal,
         timeout: 2000
     });
-} catch (e) {
+} catch {
     console.error("Request aborted or failed");
 }
 
-// Example 6: Text response
 
-const textData = await api.get<string>("/posts/1", {
+// Example 6: Text response by setting convertType
+
+const textData = await api.get("/posts/1", {
+    convertType: "TEXT"
+});
+
+// textData: string
+console.log("Text response:", textData);
+
+
+// Example 7: Text in onSuccess (alternative)
+
+const textData2 = await api.get("/posts/1", {
     callbacks: {
         onSuccess: async (_data, response) => {
-            return await response.text();
+            return response.text();
         }
     }
 });
 
-console.log("Text response:", textData);
+// textData2: Promise<string> → after await: string
 
-// Example 7: Simple usage (no callbacks)
 
-const rawUsers = await api.get<any[]>("/users");
+// Example 8: Simple usage (no callbacks)
 
-// Direct JSON result (default behavior)
+const rawUsers = await api.get("/users");
+
+// rawUsers: unknown (JSON mean unknown)
 console.log("Raw users:", rawUsers);

@@ -1,6 +1,6 @@
 {
   "name": "bestfetch-g",
-  "version": "2.0.1",
+  "version": "2.0.3",
   "description": "Advanced fetch wrapper with retry mechanism, middleware support, TypeScript strong types, and intelligent error handling",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
