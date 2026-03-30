@@ -5,7 +5,7 @@ import {withTimeoutSignal} from "./timeout";
 import {buildURL} from "./misc";
 
 interface BestFetchCallbacks<R> {
-    onSuccess?: (data: unknown, response: Response) => R;
+    onSuccess?: (data: R, response: Response) => any;
     onError?: (response: Response, isLastAttempt?: boolean) => any;
     onNetworkError?: (error: any, isLastAttempt?: boolean) => any;
 }
