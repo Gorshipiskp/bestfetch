@@ -21,7 +21,7 @@ Provides retry logic, timeouts, abort handling, and a plugin system — while ke
 ## Installation
 
 ```bash
-npm install bestfetch
+npm install bestfetch-g
 ````
 
 ---
@@ -29,7 +29,7 @@ npm install bestfetch
 ## Basic Usage
 
 ```ts
-import { BestFetch } from "bestfetch";
+import { BestFetch } from "bestfetch-g";
 
 const api = new BestFetch("https://api.example.com");
 
