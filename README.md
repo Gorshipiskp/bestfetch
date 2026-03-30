@@ -1,205 +1,317 @@
 # BestFetch
 
-> IN DEVELOPMENT, NOT FINAL VERSION
+A lightweight, extensible HTTP client built on top of the native `fetch` API.  
+Provides retry logic, timeouts, abort handling, and a plugin system — while keeping a simple and predictable interface.
 
-Advanced fetch wrapper with automatic retries, middleware support, and full TypeScript typing.
+---
 
 ## Features
 
-- **Automatic retries** with configurable backoff strategies
-- **Middleware system** for request manipulation
-- **TypeScript support** with full type safety
-- **Timeout and abort control**
-- **Intelligent retry-after** header handling
-- **Customizable converters** (JSON, text, blob, etc.)
-- **Jitter support** to prevent thundering herd
-- **Extensible architecture**
+- Native `fetch` wrapper (no heavy dependencies)
+- Built-in retry mechanism with exponential backoff
+- Timeout support via `AbortController`
+- AbortSignal merging
+- Plugin system (request / response / error hooks)
+- Typed responses via generics
+- Simple and flexible API
+- Query parameter support
+
+---
 
 ## Installation
 
 ```bash
-npm install bestfetch-g
+npm install bestfetch
+````
+
+---
+
+## Basic Usage
+
+```ts
+import { BestFetch } from "bestfetch";
+
+const api = new BestFetch("https://api.example.com");
+
+const data = await api.get<{ users: string[] }>("/users");
+
+console.log(data.users);
 ```
 
-## Quick start
+---
 
-```TypeScript
-import { BestFetch } from 'bestfetch-g';
+## Typing Responses
 
-const api = new BestFetch({
-  baseUrl: 'https://jsonplaceholder.typicode.com',
-  numRetries: 3,
-  timeout: 5000
-});
+You can strongly type the response using generics:
 
-// GET request
-const users = await api.get({
-  endpoint: 'users',
-  convertType: 'JSON',
-  callbacks: {
-    onSuccess: (users) => {
-      console.log('Users:', users);
-      return users;
-    },
-    onError: (response) => {
-      console.error('Error:', response.status);
-      return response.status !== 404; // Don't retry on 404
-    }
-  }
-});
-
-// POST request
-const newPost = await api.post({
-  endpoint: 'posts',
-  convertType: 'JSON',
-  body: { title: 'Hello', body: 'World', userId: 1 },
-  callbacks: {
-    onSuccess: (post) => {
-      console.log('Created post:', post);
-      return post.id;
-    }
-  }
-});
-```
-
-## Configuration Options
-
-```typescript
-const api = new BestFetch({
-  baseUrl: 'https://api.example.com',
-  baseConfig: {
-    headers: { 'Authorization': 'Bearer token' }
-  },
-  numRetries: 5,
-  timeout: 10000,
-  retryAfterCodes: [408, 429, 500, 502, 503, 504],
-  defaultCallbacks: {
-    onSuccess: (data) => data,
-    onError: (response) => response.status >= 500,
-    onNetworkError: (error) => true
-  }
-});
-```
-
-## Middleware System
-#### only requests for now
-
-```typescript
-// Add authentication middleware
-api.use('auth', async (request, context) => {
-  request.headers.set('Authorization', `Bearer ${getToken()}`);
-  return { stopPropagation: false, request };
-});
-
-// Add logging middleware
-api.use('logger', async (request, context) => {
-  console.log(`Attempt ${context.attempt + 1}/${context.maxAttempts}:`, request.url);
-  return { stopPropagation: false, request };
-});
-
-// Remove middleware
-api.unuse('logger');
-```
-
-## Retry Strategies
-
-```typescript
-// Custom retry options
-await api.get({
-  endpoint: 'data',
-  convertType: 'JSON',
-  retryOptions: {
-    type: 'EXPONENTIAL', // or 'LINEAR'
-    minDelay: 1000,
-    maxDelay: 30000,
-    doJitter: true
-  },
-  callbacks: {
-    onSuccess: (data) => data
-  }
-});
-```
-
-## Error Handling
-
-```typescript
-try {
-  const data = await api.get({
-    endpoint: 'protected',
-    convertType: 'JSON',
-    callbacks: {
-      onError: (response, isLastAttempt) => {
-        if (response.status === 401 && !isLastAttempt) {
-          refreshToken();
-          return true; // Retry
-        }
-        return false; // Don't retry
-      }
-    }
-  });
-} catch (error) {
-  if (error.name === 'FetchError') {
-    console.error('Server error:', error.response.status);
-  } else if (error.name === 'NetworkError') {
-    console.error('Network connection failed');
-  }
-}
-```
-
-# API Reference
-
-## HTTP Methods
-- `.get(options)`
-- `.post(options)`
-- `.put(options)`
-- `.patch(options)`
-- `.delete(options)`
-
-## Convert Types
-
-- `'JSON'` - Parse as JSON
-- `'TEXT'` - Get as text
-- `'BLOB'` - Get as Blob
-- `'BYTES'` - Get as Bytes (`UInt8Array`)
-- `'ARRAYBUFFER'` - Get as ArrayBuffer
-- `'FORMDATA'` - Get as FormData
-- `'RESPONSE'` - Get raw Response
-
-# Advanced Usage
-
-## Custom Retry-After Handling
-```typescript
-const customRetryCallback = (response: Response, retryAfter: string | null) => {
-  if (response.status === 429) {
-    return { shouldRetry: true, delayAuto: false, delay: 60000 }; // Wait 1 minute
-  }
-  return { shouldRetry: true, delayAuto: true };
+```ts
+type User = {
+    id: number;
+    name: string;
 };
 
-await api.get({
-  endpoint: 'rate-limited',
-  convertType: 'JSON',
-  retryAfterCallback: customRetryCallback,
-  callbacks: { onSuccess: (data) => data }
+const users = await api.get<User[]>("/users");
+
+// `users` is auto typed as `User[]`
+```
+
+For more control:
+
+```ts
+const result = await api.get<{ data: User[] }>("/users", {
+    callbacks: {
+        onSuccess: (data) => data.data
+    }
 });
 ```
 
-## Abort Controller
-```typescript
+---
+
+## HTTP Methods
+
+### GET
+
+```ts
+await api.get("/users");
+```
+
+### POST
+
+```ts
+await api.post("/users", {
+    name: "John"
+});
+```
+
+### PUT
+
+```ts
+await api.put("/users/1", {
+    name: "Updated"
+});
+```
+
+### PATCH
+
+```ts
+await api.patch("/users/1", {
+    name: "Patched"
+});
+```
+
+### DELETE
+
+```ts
+await api.delete("/users/1");
+```
+
+---
+
+## Query Parameters
+
+```ts
+await api.get("/users", {
+    query: {
+        limit: 10,
+        offset: 20,
+        search: "john doe"
+    }
+});
+```
+
+Generated URL:
+
+```
+/users?limit=10&offset=20&search=john%20doe
+```
+
+---
+
+## Headers
+
+```ts
+await api.get("/users", {
+    headers: {
+        Authorization: "Bearer token"
+    }
+});
+```
+
+---
+
+## Request Body
+
+JSON is automatically serialized:
+
+```ts
+await api.post("/users", {
+    name: "John",
+    age: 25
+});
+```
+
+---
+
+## Timeout
+
+```ts
+await api.get("/users", {
+    timeout: 2000 // ms
+});
+```
+
+---
+
+## Abort Requests
+
+```ts
 const controller = new AbortController();
 
-setTimeout(() => controller.abort(), 5000);
+setTimeout(() => controller.abort(), 1000);
 
-try {
-  await api.get({
-    endpoint: 'slow-endpoint',
-    convertType: 'JSON',
-    abortController: controller,
-    callbacks: { onSuccess: (data) => data }
-  });
-} catch (error) {
-  if (error.name === 'AbortError') {
-    console.log('Request was aborted');
-  }
-}
+await api.get("/users", {
+    signal: controller.signal
+});
 ```
+
+Supports merging multiple signals internally.
+
+---
+
+## Retry Configuration
+
+```ts
+const api = new BestFetch("https://api.example.com", {
+    retry: {
+        retries: 5,
+        baseDelay: 500
+    }
+});
+```
+
+Per-request override:
+
+```ts
+await api.get("/users", {
+    retry: {
+        retries: 2
+    }
+});
+```
+
+---
+
+## Callbacks
+
+### onSuccess
+
+```ts
+await api.get("/users", {
+    callbacks: {
+        onSuccess: (data) => data.users
+    }
+});
+```
+
+### onError (HTTP errors)
+
+```ts
+await api.get("/users", {
+    callbacks: {
+        onError: (response) => {
+            if (response.status === 404) return false;
+            return true;
+        }
+    }
+});
+```
+
+### onNetworkError
+
+```ts
+await api.get("/users", {
+    callbacks: {
+        onNetworkError: (error) => {
+            console.error(error);
+            return true;
+        }
+    }
+});
+```
+
+---
+
+## Plugins (Middleware)
+
+Plugins allow you to hook into request/response lifecycle.
+
+### Example: Auth Token
+
+```ts
+api.use({
+    onRequest(request) {
+        const token = localStorage.getItem("jwt");
+
+        if (!token) return request;
+
+        const headers = new Headers(request.headers);
+        headers.set("Authorization", `Bearer ${token}`);
+
+        return new Request(request, { headers });
+    }
+});
+```
+
+---
+
+### Example: Logging
+
+```ts
+api.use({
+    onRequest(request) {
+        console.log("Request:", request.url);
+        return request;
+    },
+    onResponse(response) {
+        console.log("Response:", response.status);
+        return response;
+    }
+});
+```
+
+---
+
+### Example: Global Error Handling
+
+```ts
+api.use({
+    onError(error) {
+        console.error("Global fetch error:", error);
+        return error;
+    }
+});
+```
+
+---
+
+## Advanced: Custom Response Handling
+
+By default, responses are parsed as JSON.
+
+If the response is not JSON, you can override behavior:
+
+```ts
+await api.get<string>("/text-endpoint", {
+    callbacks: {
+        onSuccess: async (_, response) => {
+            return await response.text();
+        }
+    }
+});
+```
+
+---
+
+## License
+
+MIT
