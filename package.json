@@ -1,6 +1,6 @@
 {
   "name": "bestfetch-g",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "Advanced fetch wrapper with retry mechanism, middleware support, TypeScript strong types, and intelligent error handling",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,7 +10,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Gorshipiskp/bestfetch.git"
+    "url": "git+https://github.com/Gorshipiskp/bestfetch.git"
   },
   "keywords": [
     "fetch",
