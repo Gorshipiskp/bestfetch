@@ -1,57 +1,69 @@
 import {FetchTransport} from "./transport";
-import type {RetryOptions} from "./retry";
+import type {Transport} from "./transport";
+import type {RetryHooks, RetryOptions} from "./retry";
 import {defaultRetryStrategy, RetryExecutor} from "./retry";
-import {withTimeoutSignal} from "./timeout";
 import type {FetchPlugin} from "./plugins";
 import {FetchPluginManager} from "./plugins";
+import {isJsonBody} from "./misc";
 
 export interface ClientOptions {
     baseURL: string;
     timeout?: number;
     retry?: RetryOptions;
+    transport?: Transport;
+}
+
+export interface ClientRequestInput {
+    method: string;
+    url: string;
+    headers?: HeadersInit;
+    body?: unknown;
+    signal?: AbortSignal;
+    retry?: Partial<RetryOptions>;
+    retryHooks?: RetryHooks;
 }
 
 export class HTTPClient {
-    private transport: FetchTransport = new FetchTransport();
-    private retryExecutor: RetryExecutor;
+    private transport: Transport;
+    private defaultRetry: RetryOptions;
     private plugins: FetchPluginManager = new FetchPluginManager();
 
     constructor(private options: ClientOptions) {
-
-        const retryOpts: RetryOptions = options.retry ?? {
+        this.transport = options.transport ?? new FetchTransport();
+        this.defaultRetry = options.retry ?? {
             retries: 3,
             baseDelay: 300
         };
-        this.retryExecutor = new RetryExecutor(
-            defaultRetryStrategy(retryOpts),
-            retryOpts.retries
-        );
     }
 
     use(plugin: FetchPlugin): void {
         this.plugins.use(plugin);
     }
 
-    async request(input: {
-        method: string;
-        url: string;
-        headers?: HeadersInit;
-        body?: any;
-        signal?: AbortSignal;
-    }): Promise<Response> {
+    eject(plugin: FetchPlugin): boolean {
+        return this.plugins.eject(plugin);
+    }
+
+    async request(input: ClientRequestInput): Promise<Response> {
         let request: Request = this.buildRequest(input);
+
+        const retryOpts: RetryOptions = {
+            ...this.defaultRetry,
+            ...input.retry
+        };
+
+        const retryExecutor = new RetryExecutor(
+            defaultRetryStrategy(retryOpts),
+            retryOpts.retries,
+            input.retryHooks
+        );
 
         try {
             request = await this.plugins.runRequest(request);
 
-            const response: Response = await this.retryExecutor.execute((): Promise<Response> => {
-                const signal: AbortSignal | undefined = withTimeoutSignal(
-                    input.signal,
-                    this.options.timeout
-                );
-
+            const response: Response = await retryExecutor.execute((): Promise<Response> => {
                 return this.transport.send(
-                    new Request(request, {signal})
+                    new Request(request, {signal: input.signal})
                 );
             });
 
@@ -66,17 +78,27 @@ export class HTTPClient {
         method: string;
         url: string;
         headers?: HeadersInit;
-        body?: any;
+        body?: unknown;
     }): Request {
         const url: URL = new URL(input.url, this.options.baseURL);
+        const headers = new Headers(input.headers);
+        let body: BodyInit | undefined;
+
+        if (input.body !== undefined && input.body !== null) {
+            if (isJsonBody(input.body)) {
+                if (!headers.has("Content-Type")) {
+                    headers.set("Content-Type", "application/json");
+                }
+                body = JSON.stringify(input.body);
+            } else {
+                body = input.body as BodyInit;
+            }
+        }
 
         return new Request(url, {
             method: input.method,
-            headers: {
-                "Content-Type": "application/json",
-                ...input.headers
-            },
-            body: input.body ? JSON.stringify(input.body) : undefined
+            headers,
+            body
         });
     }
 }

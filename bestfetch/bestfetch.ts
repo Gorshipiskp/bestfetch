@@ -1,24 +1,29 @@
 import type { ClientOptions } from "./client";
 import { HTTPClient } from "./client";
 import type { FetchPlugin } from "./plugins";
+import type { RetryOptions } from "./retry";
 import { withTimeoutSignal } from "./timeout";
-import { buildURL } from "./misc";
+import { buildURL, type QueryParams } from "./misc";
+import { HttpError } from "./error";
+import { parseJsonBody } from "./parse";
 
-type ConvertTypeMap = {
+export type ConvertTypeMap = {
     ARRAYBUFFER: ArrayBuffer;
     BLOB: Blob;
     BYTES: Uint8Array;
     FORMDATA: FormData;
-    JSON: any;
+    JSON: unknown;
     RESPONSE: Response;
     TEXT: string;
 };
 
 export type ResponseConvertType = keyof ConvertTypeMap;
 
+type RetryOverride = Partial<Pick<RetryOptions, "retries" | "baseDelay" | "maxDelay" | "factor" | "jitter" | "retryOn">>;
+
 type CommonCallbacks = {
-    onError?: (response: Response, isLastAttempt?: boolean) => unknown;
-    onNetworkError?: (error: unknown, isLastAttempt?: boolean) => unknown;
+    onError?: (response: Response, isLastAttempt: boolean) => boolean | void;
+    onNetworkError?: (error: unknown, isLastAttempt: boolean) => boolean | void;
 };
 
 type BestFetchCallbacksWithSuccess<TSuccess, TData> = CommonCallbacks & {
@@ -27,13 +32,13 @@ type BestFetchCallbacksWithSuccess<TSuccess, TData> = CommonCallbacks & {
 
 type BestFetchCallbacksWithoutSuccess = CommonCallbacks;
 
-type BestFetchRequestOptions<TConvert extends ResponseConvertType = "JSON"> = {
+export type BestFetchRequestOptions<TConvert extends ResponseConvertType = "JSON"> = {
     headers?: HeadersInit;
     body?: unknown;
     convertType?: TConvert;
-    query?: Record<string, unknown>;
+    query?: QueryParams;
     timeout?: number;
-    retry?: { retries?: number; baseDelay?: number };
+    retry?: RetryOverride;
     signal?: AbortSignal;
 };
 
@@ -50,6 +55,12 @@ type BestFetchRequestOptionsWithoutSuccess<
     callbacks?: BestFetchCallbacksWithoutSuccess;
 };
 
+type InternalRequestOptions = BestFetchRequestOptions<ResponseConvertType> & {
+    callbacks?: (BestFetchCallbacksWithoutSuccess & {
+        onSuccess?: (data: unknown, response: Response) => unknown;
+    });
+};
+
 const ConvertTypesHandlers: {
     [K in ResponseConvertType]: (resp: Response) => Promise<ConvertTypeMap[K]> | ConvertTypeMap[K];
 } = {
@@ -57,7 +68,7 @@ const ConvertTypesHandlers: {
     BLOB: async (resp) => await resp.blob(),
     BYTES: async (resp) => new Uint8Array(await resp.arrayBuffer()),
     FORMDATA: async (resp) => await resp.formData(),
-    JSON: async (resp) => await resp.json(),
+    JSON: async (resp) => await parseJsonBody(resp),
     RESPONSE: (resp) => resp,
     TEXT: async (resp) => await resp.text(),
 };
@@ -76,25 +87,33 @@ export class BestFetch {
         return this;
     }
 
-    async request<
-        TConvert extends ResponseConvertType = "JSON",
-        TSuccess = never
-    >(
+    eject(plugin: FetchPlugin): boolean {
+        return this.client.eject(plugin);
+    }
+
+    async request<TSuccess>(
         method: string,
         url: string,
-        options: BestFetchRequestOptionsWithSuccess<TConvert, TSuccess>
+        options: BestFetchRequestOptionsWithSuccess<ResponseConvertType, TSuccess>
     ): Promise<TSuccess>;
-    async request<
-        TConvert extends ResponseConvertType = "JSON"
-    >(
+    async request<T = unknown>(
         method: string,
         url: string,
-        options?: BestFetchRequestOptionsWithoutSuccess<TConvert>
+        options?: BestFetchRequestOptionsWithoutSuccess<"JSON">
+    ): Promise<T>;
+    async request<TConvert extends Exclude<ResponseConvertType, "JSON">>(
+        method: string,
+        url: string,
+        options: BestFetchRequestOptionsWithoutSuccess<TConvert> & { convertType: TConvert }
     ): Promise<ConvertTypeMap[TConvert]>;
-    async request(
+    async request(method: string, url: string, options?: InternalRequestOptions): Promise<unknown> {
+        return this.run(method, url, options);
+    }
+
+    private async run(
         method: string,
         url: string,
-        options: BestFetchRequestOptionsWithoutSuccess<ResponseConvertType> | BestFetchRequestOptionsWithSuccess<ResponseConvertType, unknown> = {}
+        options: InternalRequestOptions = {}
     ): Promise<unknown> {
         const signal: AbortSignal | undefined = withTimeoutSignal(
             options.signal,
@@ -102,6 +121,7 @@ export class BestFetch {
         );
 
         const finalURL: string = buildURL(url, options.query);
+        const callbacks = options.callbacks;
 
         const response: Response = await this.client.request({
             method,
@@ -109,117 +129,120 @@ export class BestFetch {
             headers: options.headers,
             body: options.body,
             signal,
+            retry: options.retry,
+            retryHooks: callbacks ? {
+                onHttpError: (resp, _attempt, isLast) => callbacks.onError?.(resp, isLast),
+                onNetworkError: (err, _attempt, isLast) => callbacks.onNetworkError?.(err, isLast),
+            } : undefined,
         });
 
         if (!response.ok) {
-            options.callbacks?.onError?.(response, true);
-            throw response;
+            throw await HttpError.from(response);
         }
 
-        try {
-            const convertType: ResponseConvertType = options.convertType ?? "JSON";
-            const typeHandler = ConvertTypesHandlers[convertType];
-            const data = await Promise.resolve(typeHandler(response)).catch(() => undefined);
+        const convertType: ResponseConvertType = options.convertType ?? "JSON";
+        const typeHandler = ConvertTypesHandlers[convertType];
 
-            if (options.callbacks && "onSuccess" in options.callbacks && typeof options.callbacks.onSuccess === "function") {
-                return options.callbacks.onSuccess(data, response);
+        try {
+            const data = await typeHandler(response);
+
+            if (callbacks?.onSuccess) {
+                return callbacks.onSuccess(data, response);
             }
 
             return data;
         } catch (error) {
-            options.callbacks?.onNetworkError?.(error, true);
+            callbacks?.onNetworkError?.(error, true);
             throw error;
         }
     }
 
-    async get<
-        TConvert extends ResponseConvertType = "JSON",
-        TSuccess = never
-    >(
+    async get<TSuccess>(
         url: string,
-        options: BestFetchRequestOptionsWithSuccess<TConvert, TSuccess>
+        options: BestFetchRequestOptionsWithSuccess<ResponseConvertType, TSuccess>
     ): Promise<TSuccess>;
-    async get<
-        TConvert extends ResponseConvertType = "JSON"
-    >(
+    async get<T = unknown>(
         url: string,
-        options?: BestFetchRequestOptionsWithoutSuccess<TConvert>
+        options?: BestFetchRequestOptionsWithoutSuccess<"JSON">
+    ): Promise<T>;
+    async get<TConvert extends Exclude<ResponseConvertType, "JSON">>(
+        url: string,
+        options: BestFetchRequestOptionsWithoutSuccess<TConvert> & { convertType: TConvert }
     ): Promise<ConvertTypeMap[TConvert]>;
-    async get(url: string, options?: any): Promise<any> {
-        return this.request("GET", url, options);
+    async get(url: string, options?: InternalRequestOptions): Promise<unknown> {
+        return this.run("GET", url, options);
     }
 
-    async post<
-        TConvert extends ResponseConvertType = "JSON",
-        TSuccess = never
-    >(
+    async post<TSuccess>(
         url: string,
         body: unknown,
-        options: BestFetchRequestOptionsWithSuccess<TConvert, TSuccess>
+        options: BestFetchRequestOptionsWithSuccess<ResponseConvertType, TSuccess>
     ): Promise<TSuccess>;
-    async post<
-        TConvert extends ResponseConvertType = "JSON"
-    >(
+    async post<T = unknown>(
         url: string,
         body: unknown,
-        options?: BestFetchRequestOptionsWithoutSuccess<TConvert>
+        options?: BestFetchRequestOptionsWithoutSuccess<"JSON">
+    ): Promise<T>;
+    async post<TConvert extends Exclude<ResponseConvertType, "JSON">>(
+        url: string,
+        body: unknown,
+        options: BestFetchRequestOptionsWithoutSuccess<TConvert> & { convertType: TConvert }
     ): Promise<ConvertTypeMap[TConvert]>;
-    async post(url: string, body?: unknown, options?: any): Promise<any> {
-        return this.request("POST", url, { ...options, body });
+    async post(url: string, body?: unknown, options?: InternalRequestOptions): Promise<unknown> {
+        return this.run("POST", url, { ...options, body });
     }
 
-    async put<
-        TConvert extends ResponseConvertType = "JSON",
-        TSuccess = never
-    >(
+    async put<TSuccess>(
         url: string,
         body: unknown,
-        options: BestFetchRequestOptionsWithSuccess<TConvert, TSuccess>
+        options: BestFetchRequestOptionsWithSuccess<ResponseConvertType, TSuccess>
     ): Promise<TSuccess>;
-    async put<
-        TConvert extends ResponseConvertType = "JSON"
-    >(
+    async put<T = unknown>(
         url: string,
         body: unknown,
-        options?: BestFetchRequestOptionsWithoutSuccess<TConvert>
+        options?: BestFetchRequestOptionsWithoutSuccess<"JSON">
+    ): Promise<T>;
+    async put<TConvert extends Exclude<ResponseConvertType, "JSON">>(
+        url: string,
+        body: unknown,
+        options: BestFetchRequestOptionsWithoutSuccess<TConvert> & { convertType: TConvert }
     ): Promise<ConvertTypeMap[TConvert]>;
-    async put(url: string, body?: unknown, options?: any): Promise<any> {
-        return this.request("PUT", url, { ...options, body });
+    async put(url: string, body?: unknown, options?: InternalRequestOptions): Promise<unknown> {
+        return this.run("PUT", url, { ...options, body });
     }
 
-    async patch<
-        TConvert extends ResponseConvertType = "JSON",
-        TSuccess = never
-    >(
+    async patch<TSuccess>(
         url: string,
         body: unknown,
-        options: BestFetchRequestOptionsWithSuccess<TConvert, TSuccess>
+        options: BestFetchRequestOptionsWithSuccess<ResponseConvertType, TSuccess>
     ): Promise<TSuccess>;
-    async patch<
-        TConvert extends ResponseConvertType = "JSON"
-    >(
+    async patch<T = unknown>(
         url: string,
         body: unknown,
-        options?: BestFetchRequestOptionsWithoutSuccess<TConvert>
+        options?: BestFetchRequestOptionsWithoutSuccess<"JSON">
+    ): Promise<T>;
+    async patch<TConvert extends Exclude<ResponseConvertType, "JSON">>(
+        url: string,
+        body: unknown,
+        options: BestFetchRequestOptionsWithoutSuccess<TConvert> & { convertType: TConvert }
     ): Promise<ConvertTypeMap[TConvert]>;
-    async patch(url: string, body?: unknown, options?: any): Promise<any> {
-        return this.request("PATCH", url, { ...options, body });
+    async patch(url: string, body?: unknown, options?: InternalRequestOptions): Promise<unknown> {
+        return this.run("PATCH", url, { ...options, body });
     }
 
-    async delete<
-        TConvert extends ResponseConvertType = "JSON",
-        TSuccess = never
-    >(
+    async delete<TSuccess>(
         url: string,
-        options: BestFetchRequestOptionsWithSuccess<TConvert, TSuccess>
+        options: BestFetchRequestOptionsWithSuccess<ResponseConvertType, TSuccess>
     ): Promise<TSuccess>;
-    async delete<
-        TConvert extends ResponseConvertType = "JSON"
-    >(
+    async delete<T = unknown>(
         url: string,
-        options?: BestFetchRequestOptionsWithoutSuccess<TConvert>
+        options?: BestFetchRequestOptionsWithoutSuccess<"JSON">
+    ): Promise<T>;
+    async delete<TConvert extends Exclude<ResponseConvertType, "JSON">>(
+        url: string,
+        options: BestFetchRequestOptionsWithoutSuccess<TConvert> & { convertType: TConvert }
     ): Promise<ConvertTypeMap[TConvert]>;
-    async delete(url: string, options?: any): Promise<any> {
-        return this.request("DELETE", url, options);
+    async delete(url: string, options?: InternalRequestOptions): Promise<unknown> {
+        return this.run("DELETE", url, options);
     }
 }

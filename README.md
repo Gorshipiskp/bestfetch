@@ -22,7 +22,7 @@ Provides retry logic, timeouts, abort handling, and a plugin system — while ke
 
 ```bash
 npm install bestfetch-g
-````
+```
 
 ---
 
@@ -31,11 +31,11 @@ npm install bestfetch-g
 ```ts
 import { BestFetch } from "bestfetch-g";
 
-const api = new BestFetch("https://api.example.com");
+const api = new BestFetch({
+    baseURL: "https://api.example.com"
+});
 
-const data = await api.get<{ users: string[] }>("/users");
-
-console.log(data.users);
+const users = await api.get<User[]>("/users");
 ```
 
 ---
@@ -114,7 +114,8 @@ await api.get("/users", {
     query: {
         limit: 10,
         offset: 20,
-        search: "john doe"
+        search: "john doe",
+        tag: ["admin", "active"]
     }
 });
 ```
@@ -213,29 +214,76 @@ await api.get("/users", {
 });
 ```
 
-### onError (HTTP errors)
+### onError (HTTP errors during retry)
+
+Return `false` to stop retrying. Any other return value leaves the default retry rules in charge.
 
 ```ts
 await api.get("/users", {
     callbacks: {
-        onError: (response) => {
+        onError: (response, isLastAttempt) => {
             if (response.status === 404) return false;
-            return true;
         }
     }
 });
 ```
 
+After all attempts fail, the client throws `HttpError`:
+
+```ts
+import { BestFetch, HttpError } from "bestfetch-g";
+
+try {
+    await api.get("/missing");
+} catch (error) {
+    if (error instanceof HttpError) {
+        console.log(error.status, error.body);
+    }
+}
+```
+
+### ParseError
+
+Invalid JSON on a successful status code throws `ParseError` (with `response` and `cause`).
+
+| Situation | Error type |
+|-----------|------------|
+| HTTP 4xx/5xx | `HttpError` |
+| Invalid JSON body | `ParseError` |
+| Network / abort | native `Error` / `DOMException` |
+
 ### onNetworkError
+
+Same contract as `onError`: `false` stops retrying.
 
 ```ts
 await api.get("/users", {
     callbacks: {
-        onNetworkError: (error) => {
-            console.error(error);
-            return true;
+        onNetworkError: (error, isLastAttempt) => {
+            console.error(error, isLastAttempt);
         }
     }
+});
+```
+
+---
+
+## Custom transport
+
+For tests or a custom stack, pass your own `Transport`:
+
+```ts
+import { BestFetch, type Transport } from "bestfetch-g";
+
+const transport: Transport = {
+    async send(request) {
+        return fetch(request);
+    }
+};
+
+const api = new BestFetch({
+    baseURL: "https://api.example.com",
+    transport
 });
 ```
 
@@ -245,18 +293,26 @@ await api.get("/users", {
 
 Plugins allow you to hook into request/response lifecycle.
 
+Remove a plugin with `api.eject(plugin)`.
+
 ### Example: Auth Token
+
+```ts
+import { BestFetch, createAuthPlugin } from "bestfetch-g";
+
+api.use(createAuthPlugin(() => localStorage.getItem("jwt")));
+```
+
+Or inline:
 
 ```ts
 api.use({
     onRequest(request) {
         const token = localStorage.getItem("jwt");
-
         if (!token) return request;
 
         const headers = new Headers(request.headers);
         headers.set("Authorization", `Bearer ${token}`);
-
         return new Request(request, { headers });
     }
 });

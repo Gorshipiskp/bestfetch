@@ -1,8 +1,11 @@
 export {BestFetch} from "./bestfetch";
+export type {BestFetchRequestOptions, ConvertTypeMap, ResponseConvertType} from "./bestfetch";
 export {HTTPClient} from "./client";
-export * from "./plugins/auth_token";
+export type {ClientOptions, ClientRequestInput} from "./client";
+export {HttpError, ParseError} from "./error";
+export {createAuthPlugin} from "./plugins/auth_token";
+export type {QueryParams, QueryValue} from "./misc";
 export * from "./retry";
 export * from "./timeout";
 export * from "./transport";
-export * from "./retry";
 export * from "./abort";

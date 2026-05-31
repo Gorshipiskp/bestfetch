@@ -1,18 +1,16 @@
 import type {FetchPlugin} from "../plugins";
 
-// Just example
+export function createAuthPlugin(getToken: () => string | null | undefined): FetchPlugin {
+    return {
+        onRequest(request: Request): Request {
+            const token = getToken();
 
-export const authPlugin: FetchPlugin = {
-    onRequest(request: Request): Request {
-        const token: string | null = localStorage.getItem("access_token");
+            if (!token) return request;
 
-        if (token) {
             const headers = new Headers(request.headers);
             headers.set("Authorization", `Bearer ${token}`);
 
             return new Request(request, {headers});
         }
-
-        return request;
-    }
-};
+    };
+}

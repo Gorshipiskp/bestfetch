@@ -11,8 +11,9 @@ export interface RetryOptions {
 
 export interface RetryContext {
     attempt: number;
+    isLastAttempt: boolean;
     response?: Response;
-    error?: any;
+    error?: unknown;
 }
 
 export type RetryDecision =
@@ -20,6 +21,11 @@ export type RetryDecision =
     | { retry: false };
 
 export type RetryStrategy = (context: RetryContext) => Promise<RetryDecision> | RetryDecision;
+
+export type RetryHooks = {
+    onHttpError?: (response: Response, attempt: number, isLastAttempt: boolean) => boolean | void;
+    onNetworkError?: (error: unknown, attempt: number, isLastAttempt: boolean) => boolean | void;
+};
 
 function parseRetryAfter(value: string): number {
     const date: number = Date.parse(value);
@@ -85,25 +91,33 @@ export function defaultRetryStrategy(options: RetryOptions): RetryStrategy {
 export class RetryExecutor {
     constructor(
         private strategy: RetryStrategy,
-        private maxRetries: number
+        private maxRetries: number,
+        private hooks?: RetryHooks
     ) {
     }
 
     async execute(execFunction: () => Promise<Response>): Promise<Response> {
-        let lastError: any;
+        let lastError: unknown;
 
         for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+            const isLastAttempt = attempt === this.maxRetries;
+
             try {
                 const response: Response = await execFunction();
 
                 if (response.ok) return response;
 
+                if (this.hooks?.onHttpError?.(response, attempt, isLastAttempt) === false) {
+                    return response;
+                }
+
                 const decision: RetryDecision = await this.strategy({
                     attempt,
+                    isLastAttempt,
                     response
                 });
 
-                if (!decision.retry || attempt === this.maxRetries) {
+                if (!decision.retry || isLastAttempt) {
                     return response;
                 }
 
@@ -111,12 +125,17 @@ export class RetryExecutor {
             } catch (error) {
                 lastError = error;
 
+                if (this.hooks?.onNetworkError?.(error, attempt, isLastAttempt) === false) {
+                    throw error;
+                }
+
                 const decision: RetryDecision = await this.strategy({
                     attempt,
+                    isLastAttempt,
                     error
                 });
 
-                if (!decision.retry || attempt === this.maxRetries) {
+                if (!decision.retry || isLastAttempt) {
                     throw error;
                 }
 
